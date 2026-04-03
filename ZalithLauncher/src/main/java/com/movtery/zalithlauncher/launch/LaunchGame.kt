@@ -13,6 +13,8 @@ import com.movtery.zalithlauncher.feature.accounts.AccountUtils
 import com.movtery.zalithlauncher.feature.accounts.AccountsManager
 import com.movtery.zalithlauncher.feature.log.Logging
 import com.movtery.zalithlauncher.feature.version.Version
+import com.movtery.zalithlauncher.plugins.renderer.ApkRendererPlugin
+import com.movtery.zalithlauncher.plugins.renderer.RendererPluginManager
 import com.movtery.zalithlauncher.renderer.Renderers
 import com.movtery.zalithlauncher.setting.AllSettings
 import com.movtery.zalithlauncher.setting.AllStaticSettings
@@ -42,14 +44,13 @@ import net.kdt.pojavlaunch.value.MinecraftAccount
 import org.greenrobot.eventbus.EventBus
 
 object LaunchGame {
+    private const val MOBILE_GLUES_PACKAGE = "com.fcl.plugin.mobileglues"
 
     @JvmStatic
     fun preLaunch(context: Context, version: Version) {
         val networkAvailable = NetworkUtils.isNetworkAvailable(context)
 
         if (!networkAvailable) {
-            // Network is unavailable, so online login cannot be performed.
-            // Still allow launch by temporarily using an offline account.
             Toast.makeText(
                 context,
                 context.getString(R.string.account_login_no_network),
@@ -83,7 +84,6 @@ object LaunchGame {
                     ).show()
                 }
 
-                // Login finished, start the game.
                 launchDownloadAndStart(context, version, networkAvailable, setOfflineAccount = false)
             },
             { exception ->
@@ -129,7 +129,6 @@ object LaunchGame {
         val mcVersion = AsyncMinecraftDownloader.getListedVersion(versionName)
         val listener = ContextAwareDoneListener(context, version)
 
-        // If the network is unavailable, skip downloading and launch directly.
         if (!networkAvailable) {
             listener.onDownloadDone()
         } else {
@@ -169,6 +168,12 @@ object LaunchGame {
         version: JMinecraftVersionList.Version
     ) {
         ensureRendererIsValid(activity)
+
+        if (!checkMobileGluesRequirementAndBlock(activity, version)) {
+            setGameProgress(false)
+            GameService.setActive(false)
+            return
+        }
 
         var account = AccountsManager.currentAccount!!
         if (minecraftVersion.offlineAccountLogin) {
@@ -215,16 +220,88 @@ object LaunchGame {
                     "Mod Perception: Legacy4J mod found, disable-warning tool maybe loaded later."
                 )
                 Settings.Manager.put(AllSettings.gamepadSdlPassthru.key, true).save()
-                MinecraftGLSurface.sdlEnabled = true;
+                MinecraftGLSurface.sdlEnabled = true
             }
         }
 
         JREUtils.redirectAndPrintJRELog()
         launchJvm(activity, account, minecraftVersion, javaRuntime, customArgs)
-
-        // We usually block in the launch call above even if the game crashes,
-        // but reset this anyway to be safe.
         GameService.setActive(false)
+    }
+
+    private fun checkMobileGluesRequirementAndBlock(
+        activity: AppCompatActivity,
+        version: JMinecraftVersionList.Version
+    ): Boolean {
+        val requires = requiresMobileGlues(version)
+        Logger.appendToLog("Mobile Glues gate [LaunchGame]: version.id=${version.id} requires=$requires")
+
+        if (!requires) {
+            return true
+        }
+
+        val installed = isMobileGluesInstalled(activity)
+        val selected = isMobileGluesSelected()
+        Logger.appendToLog("Mobile Glues gate [LaunchGame]: installed=$installed selected=$selected")
+
+        if (installed && selected) {
+            return true
+        }
+
+        showMobileGluesBlockedDialog(activity, installed, selected)
+        return false
+    }
+
+    private fun showMobileGluesBlockedDialog(
+        activity: AppCompatActivity,
+        installed: Boolean,
+        selected: Boolean
+    ) {
+        val message = when {
+            !installed -> "Mobile Glues is required for Minecraft versions above 1.16.5. Install Mobile Glues before launching this version."
+            !selected -> "Mobile Glues is installed, but it is not selected as the active renderer. Select Mobile Glues in Renderer settings before launching."
+            else -> "Mobile Glues is required before launching this version."
+        }
+
+        TaskExecutors.runInUIThread {
+            TipDialog.Builder(activity)
+                .setTitle(R.string.generic_error)
+                .setMessage(message)
+                .setWarning()
+                .setCenterMessage(false)
+                .setCancelable(false)
+                .setShowCancel(false)
+                .setConfirmClickListener { }
+                .showDialog()
+        }
+    }
+
+    private fun requiresMobileGlues(version: JMinecraftVersionList.Version): Boolean {
+        val rawVersion = version.id?.trim().orEmpty()
+        val match = Regex("""^1\.(\d+)(?:\.(\d+))?$""").matchEntire(rawVersion) ?: return true
+
+        val minor = match.groupValues[1].toIntOrNull() ?: return true
+        val patch = match.groupValues.getOrNull(2)?.takeIf { it.isNotEmpty() }?.toIntOrNull() ?: 0
+
+        return when {
+            minor < 16 -> false
+            minor > 16 -> true
+            else -> patch > 5
+        }
+    }
+
+    private fun isMobileGluesInstalled(context: Context): Boolean {
+        return try {
+            context.packageManager.getPackageInfo(MOBILE_GLUES_PACKAGE, 0)
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun isMobileGluesSelected(): Boolean {
+        val plugin = RendererPluginManager.selectedRendererPlugin as? ApkRendererPlugin
+        return plugin?.packageName == MOBILE_GLUES_PACKAGE
     }
 
     private fun ensureRendererIsValid(activity: AppCompatActivity) {
@@ -247,7 +324,6 @@ object LaunchGame {
             return versionRuntime
         }
 
-        // If no Java runtime is selected for this version, choose one automatically.
         var runtime = AllSettings.defaultRuntime.getValue()
         val pickedRuntime = MultiRTUtils.read(runtime)
 
@@ -306,11 +382,11 @@ object LaunchGame {
         val versionInfo = Tools.getVersionInfo(minecraftVersion)
         val gameDirPath = minecraftVersion.getGameDir()
 
-        // Pre-launch preparation.
         Tools.disableSplash(gameDirPath)
         val launchClassPath = Tools.generateLaunchClassPath(versionInfo, minecraftVersion)
 
         val launchArgs = LaunchArgs(
+            activity,
             account,
             gameDirPath,
             minecraftVersion,

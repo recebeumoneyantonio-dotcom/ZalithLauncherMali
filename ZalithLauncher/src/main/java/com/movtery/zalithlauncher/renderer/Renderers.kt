@@ -11,7 +11,9 @@ import net.kdt.pojavlaunch.Architecture
 import net.kdt.pojavlaunch.Tools
 
 /**
- * 启动器所有渲染器总管理者，启动器内置的渲染器与渲染器插件加载的渲染器，都会加载到这里
+ * Central renderer manager for the launcher.
+ *
+ * Both built-in renderers and renderer plugins are registered here.
  */
 object Renderers {
     private val renderers: MutableList<RendererInterface> = mutableListOf()
@@ -39,34 +41,36 @@ object Renderers {
     }
 
     /**
-     * 获取兼容当前设备的所有渲染器
+     * Returns all renderers compatible with the current device.
      */
-    fun getCompatibleRenderers(context: Context): Pair<RenderersList, List<RendererInterface>> = compatibleRenderers ?: run {
+    fun getCompatibleRenderers(context: Context): Pair<RenderersList, List<RendererInterface>> {
+        compatibleRenderers?.let { return Pair(it.first, it.second.toList()) }
+
         val deviceHasVulkan = Tools.checkVulkanSupport(context.packageManager)
-        // Currently, only 32-bit x86 does not have the Zink binary
+        // Currently, only 32-bit x86 devices do not have the Zink binary.
         val deviceHasZinkBinary = !(Architecture.is32BitsDevice() && Architecture.isx86Device())
 
-        val compatibleRenderers1: MutableList<RendererInterface> = mutableListOf()
+        val compatibleList: MutableList<RendererInterface> = mutableListOf()
         renderers.forEach { renderer ->
             if (renderer.getRendererId().contains("vulkan") && !deviceHasVulkan) return@forEach
             if (renderer.getRendererId().contains("zink") && !deviceHasZinkBinary) return@forEach
-            compatibleRenderers1.add(renderer)
+            compatibleList.add(renderer)
         }
 
         val rendererIdentifiers: MutableList<String> = mutableListOf()
         val rendererNames: MutableList<String> = mutableListOf()
-        compatibleRenderers1.forEach { renderer ->
+        compatibleList.forEach { renderer ->
             rendererIdentifiers.add(renderer.getUniqueIdentifier())
             rendererNames.add(renderer.getRendererName())
         }
 
-        val rendererPair = Pair(RenderersList(rendererIdentifiers, rendererNames), compatibleRenderers1)
+        val rendererPair = Pair(RenderersList(rendererIdentifiers, rendererNames), compatibleList)
         compatibleRenderers = rendererPair
-        rendererPair
+        return Pair(rendererPair.first, rendererPair.second.toList())
     }
 
     /**
-     * 加入一些渲染器
+     * Adds multiple renderers.
      */
     @JvmStatic
     fun addRenderers(vararg renderers: RendererInterface) {
@@ -76,41 +80,59 @@ object Renderers {
     }
 
     /**
-     * 加入单个渲染器
+     * Adds a single renderer.
      */
     @JvmStatic
     fun addRenderer(renderer: RendererInterface): Boolean {
         return if (this.renderers.any { it.getUniqueIdentifier() == renderer.getUniqueIdentifier() }) {
-            Logging.w("Renderers", "The unique identifier of this renderer (${renderer.getRendererName()} - ${renderer.getUniqueIdentifier()}) conflicts with an already loaded renderer. " +
-                    "Normally, this shouldn't happen. You deliberately caused this conflict, didn't you, user?")
+            Logging.w(
+                "Renderers",
+                "The unique identifier of this renderer (${renderer.getRendererName()} - ${renderer.getUniqueIdentifier()}) conflicts with an already loaded renderer."
+            )
             false
         } else {
             this.renderers.add(renderer)
-            Logging.i("Renderers", "Renderer loaded: ${renderer.getRendererName()} (${renderer.getRendererId()} - ${renderer.getUniqueIdentifier()})")
+            compatibleRenderers = null
+            Logging.i(
+                "Renderers",
+                "Renderer loaded: ${renderer.getRendererName()} (${renderer.getRendererId()} - ${renderer.getUniqueIdentifier()})"
+            )
             true
         }
     }
 
     /**
-     * 设置当前的渲染器
-     * @param context 用于初始化适配当前设备的渲染器
-     * @param uniqueIdentifier 渲染器的唯一标识符，用于找到当前想要设置的渲染器
-     * @param retryToFirstOnFailure 如果未找到匹配的渲染器，是否跳回渲染器列表的首个渲染器
+     * Sets the current renderer.
+     *
+     * @param context Used to resolve compatible renderers for the current device.
+     * @param uniqueIdentifier The unique identifier of the renderer to select.
+     * @param retryToFirstOnFailure If no matching renderer is found, fall back to the first
+     * compatible renderer when true.
      */
-    fun setCurrentRenderer(context: Context, uniqueIdentifier: String, retryToFirstOnFailure: Boolean = true) {
+    fun setCurrentRenderer(
+        context: Context,
+        uniqueIdentifier: String,
+        retryToFirstOnFailure: Boolean = true
+    ) {
         if (!isInitialized) throw IllegalStateException("Uninitialized renderer!")
-        val compatibleRenderers = getCompatibleRenderers(context).second
-        currentRenderer = compatibleRenderers.find { it.getUniqueIdentifier() == uniqueIdentifier } ?: run {
-            if (retryToFirstOnFailure) {
-                val renderer = compatibleRenderers[0]
-                Logging.w("Renderers", "Incompatible renderer $uniqueIdentifier will be replaced with ${renderer.getUniqueIdentifier()} (${renderer.getRendererName()})")
+
+        val compatibleList = getCompatibleRenderers(context).second
+        currentRenderer = compatibleList.find { it.getUniqueIdentifier() == uniqueIdentifier } ?: run {
+            if (retryToFirstOnFailure && compatibleList.isNotEmpty()) {
+                val renderer = compatibleList[0]
+                Logging.w(
+                    "Renderers",
+                    "Incompatible renderer $uniqueIdentifier will be replaced with ${renderer.getUniqueIdentifier()} (${renderer.getRendererName()})"
+                )
                 renderer
-            } else null
+            } else {
+                null
+            }
         }
     }
 
     /**
-     * 获取当前的渲染器
+     * Returns the currently selected renderer.
      */
     fun getCurrentRenderer(): RendererInterface {
         if (!isInitialized) throw IllegalStateException("Uninitialized renderer!")
@@ -118,7 +140,36 @@ object Renderers {
     }
 
     /**
-     * 当前是否设置了渲染器
+     * Returns true if a current renderer has been set.
      */
     fun isCurrentRendererValid(): Boolean = isInitialized && this.currentRenderer != null
+
+    /**
+     * Clears cached compatible/current renderer state without removing loaded renderers.
+     */
+    @JvmStatic
+    fun invalidateCaches() {
+        compatibleRenderers = null
+        currentRenderer = null
+    }
+
+    /**
+     * Refreshes cached renderer state after plugins have already been reloaded.
+     *
+     * This does not clear the renderer list, because doing so would remove renderer
+     * plugins that were just registered by PluginLoader.
+     */
+    @JvmStatic
+    fun reloadRenderers(
+        context: Context,
+        selectedRendererId: String,
+        retryToFirstOnFailure: Boolean = true
+    ) {
+        if (!isInitialized) {
+            init(false)
+        }
+
+        invalidateCaches()
+        setCurrentRenderer(context, selectedRendererId, retryToFirstOnFailure)
+    }
 }

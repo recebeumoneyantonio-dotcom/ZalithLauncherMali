@@ -39,11 +39,14 @@ public abstract class BaseActivity extends AppCompatActivity {
         Tools.updateWindowSize(this);
 
         checkStoragePermissions();
-        //加载渲染器
+
+        // Load built-in renderers.
         Renderers.INSTANCE.init(false);
-        //加载插件
+
+        // Load plugins.
         PluginLoader.loadAllPlugins(this, false);
-        //刷新游戏路径
+
+        // Refresh the game path.
         ProfilePathManager.INSTANCE.refreshPath();
     }
 
@@ -51,12 +54,22 @@ public abstract class BaseActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         ContextExecutor.setActivity(this);
+
         if (!Tools.checkStorageRoot()) {
             startActivity(new Intent(this, MissingStorageActivity.class));
             finish();
+            return;
         }
 
         checkStoragePermissions();
+
+        // Force-refresh renderers and plugins in case the user installed
+        // a new renderer plugin while the app was in the background.
+        Renderers.INSTANCE.init(true);
+        PluginLoader.loadAllPlugins(this, true);
+
+        // Refresh the game path again in case external state changed.
+        ProfilePathManager.INSTANCE.refreshPath();
 
         AccountsManager.INSTANCE.reload();
     }
@@ -65,7 +78,7 @@ public abstract class BaseActivity extends AppCompatActivity {
     protected void onPostResume() {
         super.onPostResume();
         Tools.setFullscreen(this);
-        Tools.ignoreNotch(shouldIgnoreNotch(),this);
+        Tools.ignoreNotch(shouldIgnoreNotch(), this);
     }
 
     @Override
@@ -88,16 +101,16 @@ public abstract class BaseActivity extends AppCompatActivity {
 
     @Subscribe
     public void event(LauncherIgnoreNotchEvent event) {
-        Tools.ignoreNotch(shouldIgnoreNotch(),this);
+        Tools.ignoreNotch(shouldIgnoreNotch(), this);
     }
 
-    /** @return Whether or not the notch should be ignored */
+    /** @return Whether the notch should be ignored. */
     public boolean shouldIgnoreNotch() {
         return AllSettings.getIgnoreNotchLauncher().getValue();
     }
 
     private void checkStoragePermissions() {
-        //检查所有文件管理权限
+        // Check all file-management permissions.
         StoragePermissionsUtils.checkPermissions(this);
     }
 }

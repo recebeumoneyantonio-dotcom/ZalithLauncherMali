@@ -6,12 +6,12 @@ import static net.kdt.pojavlaunch.Tools.currentDisplayMetrics;
 import android.Manifest;
 import android.app.NotificationManager;
 import android.content.Context;
+import android.content.Intent;
+import android.net.Uri;
 import android.content.res.ColorStateList;
 import android.graphics.Bitmap;
 import android.os.Build;
 import android.os.Bundle;
-import android.text.method.LinkMovementMethod;
-import android.text.util.Linkify;
 import android.view.View;
 import android.widget.Toast;
 
@@ -62,8 +62,10 @@ import com.movtery.zalithlauncher.feature.version.Version;
 import com.movtery.zalithlauncher.feature.version.VersionsManager;
 import com.movtery.zalithlauncher.feature.version.install.GameInstaller;
 import com.movtery.zalithlauncher.feature.version.install.InstallTask;
+import com.movtery.zalithlauncher.plugins.PluginLoader;
 import com.movtery.zalithlauncher.plugins.renderer.RendererPlugin;
 import com.movtery.zalithlauncher.plugins.renderer.RendererPluginManager;
+import com.movtery.zalithlauncher.renderer.Renderers;
 import com.movtery.zalithlauncher.setting.AllSettings;
 import com.movtery.zalithlauncher.task.Task;
 import com.movtery.zalithlauncher.task.TaskExecutors;
@@ -145,26 +147,28 @@ public class LauncherActivity extends BaseActivity {
                     mNotificationManager.cancel(NotificationUtils.NOTIFICATION_ID_GAME_START));
         }
     };
+
     @Subscribe
     public void event(PageOpacityChangeEvent event) {
         setPageOpacity(event.getProgress());
     }
+
     @Subscribe
     public void event(MainBackgroundChangeEvent event) {
         refreshBackground();
         setPageOpacity(AllSettings.getPageOpacity().getValue());
     }
+
     @Subscribe
     public void event(SwapToLoginEvent event) {
         Fragment currentFragment = getCurrentFragment();
 
-        // If the currently visible fragment is null, or the AccountFragment is already visible,
-        // there is nothing to do.
         if (currentFragment == null || getVisibleFragment(AccountFragment.TAG) != null) {
             return;
         }
         ZHTools.swapFragmentWithAnim(currentFragment, AccountFragment.class, AccountFragment.TAG, null);
     }
+
     @Subscribe(threadMode = ThreadMode.MAIN)
     public void event(LaunchGameEvent event) {
         if (binding.progressLayout.hasProcesses()) {
@@ -198,6 +202,7 @@ public class LauncherActivity extends BaseActivity {
                         public void granted() {
                             launchGame(version);
                         }
+
                         @Override
                         public void cancelled() {
                             launchGame(version);
@@ -424,6 +429,8 @@ public class LauncherActivity extends BaseActivity {
     @Override
     protected void onResume() {
         super.onResume();
+        PluginLoader.refreshAllPlugins(this);
+        Renderers.reloadRenderers(this, AllSettings.getRenderer().getValue(), true);
         setPageOpacity(AllSettings.getPageOpacity().getValue());
         VersionsManager.INSTANCE.refresh("LauncherActivity:onResume", false);
     }
@@ -490,7 +497,6 @@ public class LauncherActivity extends BaseActivity {
     }
 
     private void checkDownloadedPackagesAndUpdates() {
-        // Check already downloaded packages, or check for updates.
         Task.runTask(() -> {
             UpdateUtils.checkDownloadedPackage(this, false, true);
             return null;
@@ -505,12 +511,9 @@ public class LauncherActivity extends BaseActivity {
 
                 if (currentFragment instanceof BaseFragment
                         && !((BaseFragment) currentFragment).onBackPressed()) {
-                    // The fragment rejected the back press event.
                     return;
                 }
 
-                // If there is only one or zero fragments left in the back stack,
-                // exit the launcher directly.
                 if (getSupportFragmentManager().getBackStackEntryCount() <= 1) {
                     finish();
                 } else {
@@ -521,7 +524,6 @@ public class LauncherActivity extends BaseActivity {
 
         FragmentManager fragmentManager = getSupportFragmentManager();
 
-        // If there are no fragments in the back stack, add the main fragment.
         if (fragmentManager.getBackStackEntryCount() < 1) {
             fragmentManager.beginTransaction()
                     .setReorderingAllowed(true)
@@ -555,7 +557,6 @@ public class LauncherActivity extends BaseActivity {
         setupNoticeUI();
         setupNoticeDrag();
 
-        // April Fools' easter egg.
         binding.hair.setVisibility(ZHTools.checkDate(4, 1) ? View.VISIBLE : View.GONE);
     }
 
@@ -578,7 +579,6 @@ public class LauncherActivity extends BaseActivity {
         if (fragment instanceof MainMenuFragment) {
             ZHTools.swapFragmentWithAnim(fragment, SettingsFragment.class, SettingsFragment.TAG, null);
         } else {
-            // The settings button also acts as a home button.
             Tools.backToMainMenu(this);
         }
     }
@@ -648,13 +648,13 @@ public class LauncherActivity extends BaseActivity {
         LocalAccountUtils.checkUsageAllowed(new LocalAccountUtils.CheckResultListener() {
             @Override
             public void onUsageAllowed() {
-                preLaunch(LauncherActivity.this, version);
+                continueLaunchIfModernRendererReady(version);
             }
 
             @Override
             public void onUsageDenied() {
                 if (!AllSettings.getLocalAccountReminders().getValue()) {
-                    preLaunch(LauncherActivity.this, version);
+                    continueLaunchIfModernRendererReady(version);
                     return;
                 }
 
@@ -662,7 +662,7 @@ public class LauncherActivity extends BaseActivity {
                         LauncherActivity.this,
                         checked -> {
                             LocalAccountUtils.saveReminders(checked);
-                            preLaunch(LauncherActivity.this, version);
+                            continueLaunchIfModernRendererReady(version);
                         },
                         getString(R.string.account_no_microsoft_account)
                                 + getString(R.string.account_purchase_minecraft_account_tip),
@@ -672,6 +672,189 @@ public class LauncherActivity extends BaseActivity {
         });
     }
 
+    private void continueLaunchIfModernRendererReady(Version version) {
+        PluginLoader.refreshAllPlugins(this);
+        Renderers.reloadRenderers(this, version.getRenderer(), false);
+
+        if (!checkModernRendererRequirement(version)) {
+            return;
+        }
+
+        preLaunch(LauncherActivity.this, version);
+    }
+
+    private boolean checkModernRendererRequirement(Version version) {
+        JMinecraftVersionList.Version versionInfo = Tools.getVersionInfo(version);
+        boolean requiresModernRenderer = requiresModernRenderer(versionInfo);
+
+        Logger.appendToLog(
+                "Modern renderer gate [LauncherActivity]: version.id="
+                        + (versionInfo != null ? versionInfo.id : "null")
+                        + " requires=" + requiresModernRenderer
+        );
+
+        if (!requiresModernRenderer) {
+            return true;
+        }
+
+        boolean hasSupportedRendererInstalled = hasSupportedModernRendererAvailable();
+        boolean supportedRendererSelectedForVersion = isSupportedModernRendererSelectedForVersion(version);
+
+        Logger.appendToLog(
+                "Modern renderer gate [LauncherActivity]: available="
+                        + hasSupportedRendererInstalled
+                        + " selectedForVersion=" + supportedRendererSelectedForVersion
+                        + " versionRenderer=" + version.getRenderer()
+        );
+
+        if (!hasSupportedRendererInstalled) {
+            showModernRendererInstallDialog();
+            return false;
+        }
+
+        if (!supportedRendererSelectedForVersion) {
+            showModernRendererSelectionDialog();
+            return false;
+        }
+
+        return true;
+    }
+
+    private boolean requiresModernRenderer(JMinecraftVersionList.Version versionInfo) {
+        if (versionInfo == null || versionInfo.id == null) {
+            return true;
+        }
+
+        String rawVersion = versionInfo.id.trim();
+        java.util.regex.Matcher matcher =
+                java.util.regex.Pattern.compile("^1\\.(\\d+)(?:\\.(\\d+))?$").matcher(rawVersion);
+
+        if (!matcher.matches()) {
+            return true;
+        }
+
+        int minor;
+        int patch;
+
+        try {
+            minor = Integer.parseInt(matcher.group(1));
+            String patchGroup = matcher.group(2);
+            patch = patchGroup != null ? Integer.parseInt(patchGroup) : 0;
+        } catch (NumberFormatException e) {
+            return true;
+        }
+
+        if (minor < 16) {
+            return false;
+        }
+
+        if (minor > 16) {
+            return true;
+        }
+
+        return patch > 5;
+    }
+
+    private boolean isSupportedModernRendererPlugin(RendererPlugin rendererPlugin) {
+        String displayName = rendererPlugin.getDisplayName() != null
+                ? rendererPlugin.getDisplayName().toLowerCase()
+                : "";
+
+        String uniqueIdentifier = rendererPlugin.getUniqueIdentifier() != null
+                ? rendererPlugin.getUniqueIdentifier().toLowerCase()
+                : "";
+
+        return displayName.contains("mobile glues")
+                || displayName.contains("ltw")
+                || displayName.contains("krypton")
+                || uniqueIdentifier.contains("mobileglues")
+                || uniqueIdentifier.contains("ltw")
+                || uniqueIdentifier.contains("krypton");
+    }
+
+    private boolean hasSupportedModernRendererAvailable() {
+        for (RendererPlugin rendererPlugin : RendererPluginManager.getRendererList()) {
+            if (isSupportedModernRendererPlugin(rendererPlugin)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private boolean isSupportedModernRendererSelectedForVersion(Version version) {
+        String rendererUniqueIdentifier = version.getRenderer();
+        if (rendererUniqueIdentifier == null || rendererUniqueIdentifier.trim().isEmpty()) {
+            return false;
+        }
+
+        for (RendererPlugin rendererPlugin : RendererPluginManager.getRendererList()) {
+            if (!rendererUniqueIdentifier.equals(rendererPlugin.getUniqueIdentifier())) {
+                continue;
+            }
+
+            return isSupportedModernRendererPlugin(rendererPlugin);
+        }
+
+        return false;
+    }
+
+    private String getInstalledSupportedRendererName() {
+        for (RendererPlugin rendererPlugin : RendererPluginManager.getRendererList()) {
+            if (isSupportedModernRendererPlugin(rendererPlugin)) {
+                return rendererPlugin.getDisplayName();
+            }
+        }
+
+        return "a compatible renderer";
+    }
+
+    private void showModernRendererInstallDialog() {
+        final String mobileGluesUrl = "https://github.com/MobileGL-Dev/MobileGlues-release/releases";
+
+        String message =
+                "This Minecraft version needs a compatible modern renderer before launch.\n\n"
+                        + "No compatible renderer was detected in the renderer list.\n\n"
+                        + "Supported examples include LTW, Mobile Glues, and Krypton.\n\n"
+                        + "Recommended download:\n"
+                        + mobileGluesUrl;
+
+        new TipDialog.Builder(this)
+                .setTitle(R.string.generic_warning)
+                .setMessage(message)
+                .setCancelable(true)
+                .setShowCancel(true)
+                .setCenterMessage(false)
+                .setSelectable(true)
+                .setConfirmClickListener(checked -> {
+                    try {
+                        startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(mobileGluesUrl)));
+                    } catch (Exception e) {
+                        Logging.e("LauncherActivity", "Failed to open renderer download page.", e);
+                    }
+                })
+                .showDialog();
+    }
+
+    private void showModernRendererSelectionDialog() {
+        String rendererName = getInstalledSupportedRendererName();
+        String message =
+                "You already have a compatible renderer installed for this version"
+                        + ("a compatible renderer".equals(rendererName) ? "" : " (" + rendererName + ")")
+                        + ".\n\n"
+                        + "It is not selected for this version yet.\n\n"
+                        + "Open Settings > Video Settings > Renderer, then select the compatible renderer before launching.";
+
+        new TipDialog.Builder(this)
+                .setTitle(R.string.generic_warning)
+                .setMessage(message)
+                .setCancelable(true)
+                .setShowCancel(false)
+                .setCenterMessage(false)
+                .setSelectable(true)
+                .showDialog();
+    }
+
     private void checkNotice() {
         checkNotice = TaskExecutors.getDefault().submit(() ->
                 CheckNewNotice.checkNewNotice(noticeInfo -> {
@@ -679,8 +862,6 @@ public class LauncherActivity extends BaseActivity {
                         return;
                     }
 
-                    // Show the notice panel if notice display is enabled in preferences,
-                    // or if the detected notice number differs from the saved preference.
                     if (AllSettings.getNoticeDefault().getValue()
                             || noticeInfo.numbering != AllSettings.getNoticeNumbering().getValue()) {
                         TaskExecutors.runInUIThread(() -> setNotice(true));
@@ -704,9 +885,6 @@ public class LauncherActivity extends BaseActivity {
             binding.noticeTitleView.setText(noticeInfo.title);
             binding.noticeMessageView.setText(noticeInfo.content);
             binding.noticeDateView.setText(noticeInfo.date);
-
-            Linkify.addLinks(binding.noticeMessageView, Linkify.WEB_URLS);
-            binding.noticeMessageView.setMovementMethod(LinkMovementMethod.getInstance());
 
             noticeAnimPlayer.clearEntries();
             noticeAnimPlayer.apply(
