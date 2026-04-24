@@ -23,8 +23,11 @@ class AccountUtils {
             doneListener: DoneListener,
             errorListener: ErrorListener
         ) {
-            MicrosoftBackgroundLogin(true, account.msaRefreshToken)
-                .performLogin(context, account, doneListener, errorListener)
+            // EngenhariaSonora: Microsoft login is DISABLED. Offline-First mode.
+            Logging.w("AccountUtils", "microsoftLogin() called but is disabled. Offline-First mode.")
+            errorListener.onLoginError(
+                UnsupportedOperationException("Login Microsoft desativado. Use o modo Offline.")
+            )
         }
 
         @JvmStatic
