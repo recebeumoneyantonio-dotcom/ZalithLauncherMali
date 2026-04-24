@@ -7,7 +7,7 @@ plugins {
     id("org.jetbrains.kotlin.android") version "2.0.21"
     id("stringfog")
 }
-apply(plugin = "stringfog")
+
 val getCFApiKey = {
     "$2a$10$RrIlPprgFCiN5Xncl4jTAuIDUy0Gpp2tBDzKoxZunRNuxlgkouSGO"
 }
@@ -24,16 +24,22 @@ val getBuildType = {
 
 val nameId = "com.movtery.zalithlauncher"
 val generatedZalithDir = file("$buildDir/generated/source/zalith/java")
-val launcherAPPName = project.findProperty("launcher_app_name") as? String ?: error("The "launcher_app_name" property is not set in gradle.properties.")
-val launcherName = project.findProperty("launcher_name") as? String ?: error("The "launcher_name" property is not set in gradle.properties.")
-val launcherVersionCode = (project.findProperty("launcher_version_code") as? String)?.toIntOrNull() ?: error("The "launcher_version_code" property is not set as an integer in gradle.properties.")
-val launcherVersionName = project.findProperty("launcher_version_name") as? String ?: error("The "launcher_version_name" property is not set in gradle.properties.")
+val launcherAPPName =
+    project.findProperty("launcher_app_name") as? String
+        ?: error("The launcher_app_name property is not set in gradle.properties.")
+val launcherName =
+    project.findProperty("launcher_name") as? String
+        ?: error("The launcher_name property is not set in gradle.properties.")
+val launcherVersionCode =
+    (project.findProperty("launcher_version_code") as? String)?.toIntOrNull()
+        ?: error("The launcher_version_code property is not set as an integer in gradle.properties.")
+val launcherVersionName =
+    project.findProperty("launcher_version_name") as? String
+        ?: error("The launcher_version_name property is not set in gradle.properties.")
 
-configurations {
-    create("instrumentedClasspath") {
-        isCanBeConsumed = false
-        isCanBeResolved = true
-    }
+configurations.create("instrumentedClasspath") {
+    isCanBeConsumed = false
+    isCanBeResolved = true
 }
 
 configure<StringFogExtension> {
@@ -47,13 +53,12 @@ android {
     namespace = nameId
     compileSdk = 34
 
-    // ✅ CORRIGIDO: Signing config completo e funcional
     signingConfigs {
         create("releaseBuild") {
             val storePwd = System.getenv("SIGNING_STORE_PASSWORD") ?: "123456"
             val keyPwd = System.getenv("SIGNING_KEY_PASSWORD") ?: "123456"
             val keyAlias = System.getenv("SIGNING_KEY_ALIAS") ?: "launcher"
-            
+
             storeFile = file("launcher-key.jks")
             storePassword = storePwd
             keyAlias = keyAlias
@@ -84,7 +89,10 @@ android {
             applicationIdSuffix = ".debug"
             isMinifyEnabled = false
             isShrinkResources = false
-            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
             signingConfig = signingConfigs.getByName("customDebug")
             resValue("string", "storageProviderAuthorities", "$storageProviderId.debug")
         }
@@ -99,7 +107,10 @@ android {
         }
         getByName("release") {
             isMinifyEnabled = false
-            proguardFiles(getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro")
+            proguardFiles(
+                getDefaultProguardFile("proguard-android.txt"),
+                "proguard-rules.pro"
+            )
             resValue("string", "storageProviderAuthorities", storageProviderId)
             signingConfig = signingConfigs.getByName("releaseBuild")
         }
@@ -110,31 +121,36 @@ android {
     androidComponents {
         onVariants { variant ->
             variant.outputs.forEach { output ->
-                if (output is com.android.build.api.variant.impl.VariantOutputImpl) {
+
+                afterEvaluate {
                     val variantName = variant.name.replaceFirstChar { it.uppercaseChar() }
-                    afterEvaluate {
-                        val task = tasks.named("merge${variantName}Assets").get() as MergeSourceSetFolders
-                        task.doLast {
-                            val arch = System.getProperty("arch", "all")
-                            val assetsDir = task.outputDir.get().asFile
-                            val jreList = listOf("jre-8", "jre-17", "jre-21" , "jre-25")
-                            println("arch:$arch")
-                            jreList.forEach { jreVersion ->
-                                val runtimeDir = File("$assetsDir/components/$jreVersion")
-                                println("runtimeDir:${runtimeDir.absolutePath}")
-                                runtimeDir.listFiles()?.forEach {
-                                    if (arch != "all" && it.name != "version" && !it.name.contains("universal") && it.name != "bin-${arch}.tar.xz") {
-                                        println("delete:${it} : ${it.delete()}")
-                                    }
+                    val task = tasks.named("merge${variantName}Assets").get() as MergeSourceSetFolders
+                    task.doLast {
+                        val arch = System.getProperty("arch", "all")
+                        val assetsDir = task.outputDir.get().asFile
+                        val jreList = listOf("jre-8", "jre-17", "jre-21", "jre-25")
+                        println("arch:$arch")
+                        jreList.forEach { jreVersion ->
+                            val runtimeDir = File("$assetsDir/components/$jreVersion")
+                            println("runtimeDir:${runtimeDir.absolutePath}")
+                            runtimeDir.listFiles()?.forEach {
+                                if (arch != "all" &&
+                                    it.name != "version" &&
+                                    !it.name.contains("universal") &&
+                                    it.name != "bin-${arch}.tar.xz"
+                                ) {
+                                    println("delete:${it} : ${it.delete()}")
                                 }
                             }
                         }
                     }
+                }
 
-                    (output.getFilter(ABI)?.identifier ?: "all").let { abi ->
-                        val baseName = "$launcherName-${if (variant.buildType == "release") defaultConfig.versionName else "Debug-${defaultConfig.versionName}"}"
-                        output.outputFileName = if (abi == "all") "$baseName.apk" else "$baseName-$abi.apk"
-                    }
+                (output.getFilter(ABI)?.identifier ?: "all").let { abi ->
+                    val baseName =
+                        "$launcherName-${if (variant.buildType == "release") defaultConfig.versionName else "Debug-${defaultConfig.versionName}"}"
+                    output.outputFileName =
+                        if (abi == "all") "$baseName.apk" else "$baseName-$abi.apk"
                 }
             }
         }
@@ -169,7 +185,7 @@ android {
         targetCompatibility = JavaVersion.VERSION_1_8
     }
 
-    packaging {
+    packagingOptions {
         jniLibs {
             useLegacyPackaging = true
             pickFirsts += listOf("**/libbytehook.so")
@@ -188,7 +204,12 @@ android {
     }
 }
 
-fun generateJavaClass(sourceOutputDir: File, packageName: String, className: String, constantMap: Map<String, String>) {
+fun generateJavaClass(
+    sourceOutputDir: File,
+    packageName: String,
+    className: String,
+    constantMap: Map<String, String>
+) {
     val outputDir = File(sourceOutputDir, packageName.replace(".", "/"))
     outputDir.mkdirs()
     val javaFile = File(outputDir, "$className.java")
