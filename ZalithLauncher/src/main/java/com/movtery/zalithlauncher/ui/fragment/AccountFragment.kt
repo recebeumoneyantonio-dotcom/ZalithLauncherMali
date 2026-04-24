@@ -174,56 +174,25 @@ class AccountFragment : FragmentWithAnim(R.layout.fragment_account), View.OnClic
             accountsRecycler.adapter = accountAdapter
 
             accountTypeTab.observeIndexChange { _, toIndex, _, fromUser ->
-                fun handleNonMicrosoftLogin(message: Int, login: () -> Unit) {
-                    checkUsageAllowed(object : CheckResultListener {
-                        override fun onUsageAllowed() {
-                            login()
-                        }
-
-                        override fun onUsageDenied() {
-                            if (!AllSettings.localAccountReminders.getValue()) {
-                                login()
-                            } else {
-                                openDialog(
-                                    context,
-                                    TipDialog.OnConfirmClickListener { checked ->
-                                        LocalAccountUtils.saveReminders(checked)
-                                        login()
-                                    },
-                                    getString(message) + getString(R.string.account_purchase_minecraft_account_tip),
-                                    R.string.account_no_microsoft_account_continue
-                                )
-                            }
-                        }
-                    })
-                }
+                // EngenhariaSonora: Offline-First mode.
+                // Microsoft login is disabled. Offline and external accounts work without warnings.
 
                 // We only want to respond to direct user taps.
                 // Otherwise, it may keep opening the Microsoft login screen repeatedly.
                 if (fromUser) {
                     when (toIndex) {
-                        // Microsoft account
-                        0 -> ZHTools.swapFragmentWithAnim(
-                            this@AccountFragment,
-                            MicrosoftLoginFragment::class.java,
-                            MicrosoftLoginFragment.TAG,
-                            null
-                        )
+                        // Microsoft account - DISABLED in EngenhariaSonora Launcher
+                        0 -> Toast.makeText(
+                            context,
+                            "Login Microsoft desativado. Selecione o modo Offline.",
+                            Toast.LENGTH_LONG
+                        ).show()
 
-                        // Offline account
-                        1 -> {
-                            handleNonMicrosoftLogin(R.string.account_no_microsoft_account_local) {
-                                localLogin()
-                            }
-                        }
+                        // Offline account - direct login, no warning dialog
+                        1 -> localLogin()
 
-                        // External / third-party account
-                        else -> {
-                            handleNonMicrosoftLogin(R.string.account_no_microsoft_account_other) {
-                                // Server index starts from 0.
-                                otherLogin(toIndex - 2)
-                            }
-                        }
+                        // External / third-party account - direct login, no warning dialog
+                        else -> otherLogin(toIndex - 2)
                     }
                 }
             }
