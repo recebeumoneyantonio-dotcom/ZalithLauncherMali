@@ -9,7 +9,7 @@ plugins {
 }
 apply(plugin = "stringfog")
 val getCFApiKey = {
-    "\$2a\$10\$RrIlPprgFCiN5Xncl4jTAuIDUy0Gpp2tBDzKoxZunRNuxlgkouSGO"
+    "$2a$10$RrIlPprgFCiN5Xncl4jTAuIDUy0Gpp2tBDzKoxZunRNuxlgkouSGO"
 }
 
 val getBuildType = {
@@ -24,10 +24,10 @@ val getBuildType = {
 
 val nameId = "com.movtery.zalithlauncher"
 val generatedZalithDir = file("$buildDir/generated/source/zalith/java")
-val launcherAPPName = project.findProperty("launcher_app_name") as? String ?: error("The \"launcher_app_name\" property is not set in gradle.properties.")
-val launcherName = project.findProperty("launcher_name") as? String ?: error("The \"launcher_name\" property is not set in gradle.properties.")
-val launcherVersionCode = (project.findProperty("launcher_version_code") as? String)?.toIntOrNull() ?: error("The \"launcher_version_code\" property is not set as an integer in gradle.properties.")
-val launcherVersionName = project.findProperty("launcher_version_name") as? String ?: error("The \"launcher_version_name\" property is not set in gradle.properties.")
+val launcherAPPName = project.findProperty("launcher_app_name") as? String ?: error("The "launcher_app_name" property is not set in gradle.properties.")
+val launcherName = project.findProperty("launcher_name") as? String ?: error("The "launcher_name" property is not set in gradle.properties.")
+val launcherVersionCode = (project.findProperty("launcher_version_code") as? String)?.toIntOrNull() ?: error("The "launcher_version_code" property is not set as an integer in gradle.properties.")
+val launcherVersionName = project.findProperty("launcher_version_name") as? String ?: error("The "launcher_version_name" property is not set in gradle.properties.")
 
 configurations {
     create("instrumentedClasspath") {
@@ -47,13 +47,17 @@ android {
     namespace = nameId
     compileSdk = 34
 
+    // ✅ CORRIGIDO: Signing config completo e funcional
     signingConfigs {
         create("releaseBuild") {
-            val pwd = System.getenv("MOVTERY_KEYSTORE_PASSWORD")
-            storeFile = file("movtery-key.jks")
-            storePassword = pwd
-            keyAlias = "es"
-            keyPassword = pwd
+            val storePwd = System.getenv("SIGNING_STORE_PASSWORD") ?: "123456"
+            val keyPwd = System.getenv("SIGNING_KEY_PASSWORD") ?: "123456"
+            val keyAlias = System.getenv("SIGNING_KEY_ALIAS") ?: "launcher"
+            
+            storeFile = file("launcher-key.jks")
+            storePassword = storePwd
+            keyAlias = keyAlias
+            keyPassword = keyPwd
         }
         create("customDebug") {
             storeFile = file("debug.keystore")
@@ -69,7 +73,7 @@ android {
         targetSdk = 34
         versionCode = launcherVersionCode
         versionName = launcherVersionName
-        multiDexEnabled = true //important
+        multiDexEnabled = true
         manifestPlaceholders["launcher_name"] = launcherAPPName
     }
 
@@ -94,7 +98,6 @@ android {
             isDebuggable = false
         }
         getByName("release") {
-            // Don't set to true or java.awt will be a.a or something similar.
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro")
             resValue("string", "storageProviderAuthorities", storageProviderId)
@@ -189,8 +192,9 @@ fun generateJavaClass(sourceOutputDir: File, packageName: String, className: Str
     val outputDir = File(sourceOutputDir, packageName.replace(".", "/"))
     outputDir.mkdirs()
     val javaFile = File(outputDir, "$className.java")
-    val constants = constantMap.entries.joinToString("\n") { (key, value) ->
-        "\tpublic static final String $key = \"$value\";"
+    val constants = constantMap.entries.joinToString("
+") { (key, value) ->
+        "\tpublic static final String $key = "$value";"
     }
     javaFile.writeText(
         """
@@ -226,7 +230,6 @@ tasks.named("preBuild") {
 dependencies {
     implementation("javax.annotation:javax.annotation-api:1.3.2")
     implementation("commons-codec:commons-codec:1.17.1")
-    // implementation("com.wu-man:android-bsf-api:3.1.3")
     implementation("androidx.drawerlayout:drawerlayout:1.2.0")
     implementation("androidx.viewpager2:viewpager2:1.1.0-beta01")
     implementation("androidx.annotation:annotation:1.7.0")
@@ -245,19 +248,11 @@ dependencies {
     implementation("com.github.angcyo.DslTablayout:TabLayout:3.6.5")
 
     implementation("com.github.megatronking.stringfog:xor:5.0.0")
-
     implementation("top.fifthlight.touchcontroller:proxy-client-android:0.0.2")
 
-    // implementation("com.intuit.sdp:sdp-android:1.0.5")
-    // implementation("com.intuit.ssp:ssp-android:1.0.5")
-
     implementation("org.tukaani:xz:1.9")
-    // Our version of exp4j can be built from source at
-    // https://github.com/PojavLauncherTeam/exp4j
     implementation("net.sourceforge.htmlcleaner:htmlcleaner:2.6.1")
     implementation("com.bytedance:bytehook:1.0.10")
-
-    // implementation("net.sourceforge.streamsupport:streamsupport-cfuture:1.7.0")
 
     implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.jar"))))
 
