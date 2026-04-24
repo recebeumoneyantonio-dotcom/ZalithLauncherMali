@@ -42,11 +42,13 @@ public class MicrosoftLoginFragment extends BaseFragment {
 
     @Override
     public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
-        binding.returnButton.setOnClickListener(v -> forceBack());
-
-        setWebViewSettings();
-        if(savedInstanceState == null) startNewSession();
-        else restoreWebViewState(savedInstanceState);
+        // EngenhariaSonora: Microsoft login is DISABLED. Redirect user immediately.
+        Toast.makeText(
+            requireContext(),
+            "Login Microsoft desativado. Use o modo Offline.",
+            Toast.LENGTH_LONG
+        ).show();
+        forceBack();
     }
 
     // WebView.restoreState() does not restore the WebSettings or the client, so set them there
