@@ -69,57 +69,26 @@ public class MicrosoftBackgroundLogin {
         mAuthCode = authCode;
     }
 
-    /** Performs a full login, calling back listeners appropriately  */
+    /**
+     * Microsoft login is DISABLED in EngenhariaSonora Launcher (Offline-First mode).
+     * This method immediately signals an error so the UI can handle it gracefully.
+     * No network connection to Microsoft servers is ever attempted.
+     */
     public void performLogin(
             final Context context,
             final MinecraftAccount account,
             @Nullable final DoneListener doneListener,
             @Nullable final ErrorListener errorListener
     ) {
-        Task.runTask(() -> {
-            notifyProgress(1, context.getString(R.string.account_login_progress_access_token));
-            String accessToken = acquireAccessToken(mIsRefresh, mAuthCode);
-            notifyProgress(2, context.getString(R.string.account_login_progress_xbl_token));
-            String xboxLiveToken = acquireXBLToken(accessToken);
-            notifyProgress(3, context.getString(R.string.account_login_progress_xsts_token));
-            String[] xsts = acquireXsts(xboxLiveToken);
-            notifyProgress(4, context.getString(R.string.account_login_progress_minecraft_token));
-            String mcToken = acquireMinecraftToken(xsts[0], xsts[1]);
-            notifyProgress(5, context.getString(R.string.account_login_progress_checking));
-            fetchOwnedItems(mcToken);
-            checkMcProfile(mcToken);
-
-            MinecraftAccount acc;
-            if (account == null) {
-                //尝试找到本地已经存在的，相同Profile UUID的账号
-                MinecraftAccount acc1 = MinecraftAccount.loadFromProfileID(mcUuid);
-                acc = acc1 != null ? acc1 : new MinecraftAccount();
-            } else {
-                acc = account;
-            }
-
-            if (doesOwnGame) {
-                acc.xuid = xsts[0];
-                acc.clientToken = "0"; /* FIXME */
-                acc.accessToken = mcToken;
-                acc.username = mcName;
-                acc.profileId = mcUuid;
-                acc.msaRefreshToken = msRefreshToken;
-                acc.accountType = AccountType.MICROSOFT.getType();
-                acc.updateMicrosoftSkin();
-            }
-            acc.save();
-            Logging.i("Account", "Saved the account : " + acc.username);
-
-            return acc;
-        }).ended(TaskExecutors.getAndroidUI(), acc -> {
-            if (doneListener != null && acc != null) doneListener.onLoginDone(acc);
-        }).onThrowable(TaskExecutors.getAndroidUI(), e -> {
-            Logging.e("MicroAuth", "Exception thrown during authentication", e);
-            if(errorListener != null) errorListener.onLoginError(e);
-        }).finallyTask(() -> {
-            ProgressLayout.clearProgress(ProgressLayout.LOGIN_ACCOUNT);
-        }).execute();
+        Logging.w("MicroAuth", "Microsoft login is disabled in EngenhariaSonora Launcher. Offline-First mode active.");
+        ProgressLayout.clearProgress(ProgressLayout.LOGIN_ACCOUNT);
+        if (errorListener != null) {
+            errorListener.onLoginError(
+                new UnsupportedOperationException(
+                    "Login Microsoft desativado.\nUse o modo Offline para jogar."
+                )
+            );
+        }
     }
 
     public String acquireAccessToken(boolean isRefresh, String authcode) throws IOException, JSONException {
