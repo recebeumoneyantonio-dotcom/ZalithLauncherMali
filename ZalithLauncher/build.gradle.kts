@@ -22,7 +22,7 @@ val getBuildType = {
     buildType
 }
 
-val nameId = "com.movtery.zalithlauncher"
+val nameId = "com.engenharasonora.launcher"
 val generatedZalithDir = file("$buildDir/generated/source/zalith/java")
 val launcherAPPName = project.findProperty("launcher_app_name") as? String ?: error("The \"launcher_app_name\" property is not set in gradle.properties.")
 val launcherName = project.findProperty("launcher_name") as? String ?: error("The \"launcher_name\" property is not set in gradle.properties.")
@@ -38,7 +38,7 @@ configurations {
 
 configure<StringFogExtension> {
     implementation = "com.github.megatronking.stringfog.xor.StringFogImpl"
-    fogPackages = arrayOf(nameId)
+    fogPackages = arrayOf(nameId, "com.movtery.zalithlauncher")
     kg = com.github.megatronking.stringfog.plugin.kg.RandomKeyGenerator()
     mode = com.github.megatronking.stringfog.plugin.StringFogMode.bytes
 }
@@ -215,6 +215,7 @@ tasks.register("generateInfoDistributor") {
             "APP_NAME" to project.property("launcher_app_name").toString(),
             "BUILD_TYPE" to getBuildType()
         )
+        generateJavaClass(generatedZalithDir, "com.engenharasonora.launcher", "InfoDistributor", constantMap)
         generateJavaClass(generatedZalithDir, "com.movtery.zalithlauncher", "InfoDistributor", constantMap)
     }
 }
