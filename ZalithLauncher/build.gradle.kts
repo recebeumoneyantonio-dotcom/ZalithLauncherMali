@@ -52,7 +52,7 @@ android {
             val pwd = System.getenv("MOVTERY_KEYSTORE_PASSWORD")
             storeFile = file("movtery-key.jks")
             storePassword = pwd
-            keyAlias = "mtp"
+            keyAlias = "es"
             keyPassword = pwd
         }
         create("customDebug") {
